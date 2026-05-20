@@ -1,0 +1,197 @@
+version: "3.9":
+
+# -----------------------------------------------------------------------------
+# HPID Bank — CDSP Demo Lab
+# -----------------------------------------------------------------------------
+
+networks:
+  hpidbank-net:
+    driver: bridge
+
+volumes:
+  pgprod-data:
+  pganalytics-data:
+  pgadmin-data:
+
+services:
+
+  # ---------- Databases ----------
+  postgres-prod:
+    image: postgres:15
+    container_name: postgres-prod
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_PROD_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PROD_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_PROD_DB}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgprod-data:/var/lib/postgresql/data
+      - ./sql/01-init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    networks: [hpidbank-net]
+
+  postgres-analytics:
+    image: postgres:15
+    container_name: postgres-analytics
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_ANALYTICS_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_ANALYTICS_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_ANALYTICS_DB}
+    ports:
+      - "5433:5432"
+    volumes:
+      - pganalytics-data:/var/lib/postgresql/data
+      - ./sql/02-analytics-init.sql:/docker-entrypoint-initdb.d/02-analytics-init.sql:ro
+    networks: [hpidbank-net]
+
+  pgadmin:
+    image: dpage/pgadmin4:8
+    container_name: pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD}
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin-data:/var/lib/pgadmin
+    networks: [hpidbank-net]
+    depends_on: [postgres-prod]
+
+
+  # ---------- App1 v1 (Phase 1 — plaintext) ----------
+  app1-v1:
+    build: ./app1-v1
+    image: hpidsg/hpidbank-app1-v1:latest
+    container_name: app1-v1
+    restart: unless-stopped
+    environment:
+      DB_HOST: postgres-prod
+      DB_PORT: 5432
+      DB_NAME: ${POSTGRES_PROD_DB}
+      DB_USER: ${POSTGRES_PROD_USER}
+      DB_PASSWORD: ${POSTGRES_PROD_PASSWORD}
+      SECRET_KEY: ${APP1_SECRET_KEY}
+      APP_VERSION: "v1-plaintext"
+    ports:
+      - "5001:5000"
+    networks: [hpidbank-net]
+    depends_on: [postgres-prod]
+
+  # ---------- App1 v2 (Phase 2 — CRDP) ----------
+  app1-v2:
+    build: ./app1-v2
+    image: hpidsg/hpidbank-app1-v2:latest
+    container_name: app1-v2
+    restart: unless-stopped
+    environment:
+      DB_HOST: postgres-prod
+      DB_PORT: 5432
+      DB_NAME: ${POSTGRES_PROD_DB}
+      DB_USER: ${POSTGRES_PROD_USER}
+      DB_PASSWORD: ${POSTGRES_PROD_PASSWORD}
+      SECRET_KEY: ${APP1_SECRET_KEY}
+      APP_VERSION: "v2-crdp"
+      CRDP_URL: http://crdp:8090
+      POLICY_CCCD: ${POLICY_CCCD}
+      POLICY_CC: ${POLICY_CC}
+    ports:
+      - "5002:5000"
+    networks: [hpidbank-net]
+    depends_on: [postgres-prod, crdp]
+
+  # ---------- App2 backend (Phase 3 — không hề biết encryption) ----------
+  app2-backend:
+    build: ./app2-backend
+    image: hpidsg/hpidbank-app2-backend:latest
+    container_name: app2-backend
+    restart: unless-stopped
+    environment:
+      DB_HOST: postgres-prod
+      DB_PORT: 5432
+      DB_NAME: ${POSTGRES_PROD_DB}
+      DB_USER: ${POSTGRES_PROD_USER}
+      DB_PASSWORD: ${POSTGRES_PROD_PASSWORD}
+      JWT_SECRET: ${APP2_JWT_SECRET}
+      PORT: "3001"
+    expose: ["3001"]
+    networks: [hpidbank-net]
+    depends_on: [postgres-prod]
+
+  # ---------- App2 frontend v1 (Phase 1 — trỏ thẳng backend, không qua DPG) ----------
+  app2-frontend-v1:
+    build:
+      context: ./app2-frontend
+      args:
+        APP_VERSION: "v1-plain"
+    image: hpidsg/hpidbank-app2-frontend-v1:latest
+    container_name: app2-frontend-v1
+    restart: unless-stopped
+    environment:
+      API_BACKEND: http://app2-backend:3001
+    ports:
+      - "8001:80"
+    networks: [hpidbank-net]
+    depends_on: [app2-backend]
+
+  # ---------- App2 frontend v2 (Phase 2 — qua DPG) ----------
+  app2-frontend-v2:
+    build:
+      context: ./app2-frontend
+      args:
+        APP_VERSION: "v2-dpg"
+    image: hpidsg/hpidbank-app2-frontend-v2:latest
+    container_name: app2-frontend-v2
+    restart: unless-stopped
+    environment:
+      API_BACKEND: http://dpg:8990
+    ports:
+      - "8002:80"
+    networks: [hpidbank-net]
+    depends_on: [dpg]
+
+
+  # ---------- DPG (Phase 2 — transparent proxy trước app2-backend) ----------
+  dpg:
+    image: thalesciphertrust/ciphertrust-data-protection-gateway:latest
+    container_name: dpg
+    restart: unless-stopped
+    environment:
+      KMS: ${KMS}
+      TLS_ENABLED: "false"
+      REG_TOKEN: ${DPG_REG_TOKEN}
+      DESTINATION_URL: http://app2-backend:3001
+    ports:
+      - "8990:8990"
+    networks: [hpidbank-net]
+    depends_on: [app2-backend]
+
+  # ---------- CRDP (Phase 2 — protect/reveal API cho App1 v2) ----------
+  crdp:
+    image: thalesciphertrust/ciphertrust-restful-data-protection:latest
+    container_name: crdp
+    restart: unless-stopped
+    environment:
+      KEY_MANAGER_HOST: ${KMS}
+      REGISTRATION_TOKEN: ${CRDP_REG_TOKEN}
+      SERVER_MODE: "no-tls"
+    ports:
+      - "8090:8090"
+      - "8080:8080"
+    networks: [hpidbank-net]
+ 
+  # ---------- BDT (Phase 4 — protect/reveal API cho App1 v2) ---------- 
+  bdt:
+    container_name: bdt
+    image: thalesciphertrust/ciphertrust-batch-data-transformation:latest
+    environment:
+      KMS_HOST: ${KMS}
+      KMS_PORT: "443"
+      REG_TOKEN: ${BDT_REG_TOKEN}
+    ports:
+      - "8010:8080"
+    networks: [hpidbank-net]
+    depends_on: [postgres-analytics]
