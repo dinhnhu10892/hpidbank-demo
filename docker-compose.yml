@@ -176,4 +176,3 @@ services:
     ports:
       - "8010:8080"
     networks: [hpidbank-net]
-    depends_on: [postgres-analytics]
