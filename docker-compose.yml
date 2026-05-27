@@ -1,5 +1,3 @@
-version: "3.9":
-
 # -----------------------------------------------------------------------------
 # HPID Bank — CDSP Demo Lab
 # -----------------------------------------------------------------------------
@@ -10,7 +8,6 @@ networks:
 
 volumes:
   pgprod-data:
-  pganalytics-data:
   pgadmin-data:
 
 services:
@@ -29,21 +26,6 @@ services:
     volumes:
       - pgprod-data:/var/lib/postgresql/data
       - ./sql/01-init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
-    networks: [hpidbank-net]
-
-  postgres-analytics:
-    image: postgres:15
-    container_name: postgres-analytics
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${POSTGRES_ANALYTICS_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_ANALYTICS_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_ANALYTICS_DB}
-    ports:
-      - "5433:5432"
-    volumes:
-      - pganalytics-data:/var/lib/postgresql/data
-      - ./sql/02-analytics-init.sql:/docker-entrypoint-initdb.d/02-analytics-init.sql:ro
     networks: [hpidbank-net]
 
   pgadmin:
