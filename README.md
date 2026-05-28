@@ -2,7 +2,7 @@
 
 Môi trường demo **Thales CipherTrust Data Security Platform (CDSP)** dạng ngân hàng giả lập, chạy hoàn toàn bằng Docker Compose với image public trên Docker Hub.
 
-**Mục tiêu:** Chỉ cần chuẩn bị CipherTrust Manager và điền 3 registration token vào file `.env`, sau đó `docker compose up -d` là có ngay môi trường demo đầy đủ — không cần build code.
+**Mục tiêu:** Chỉ cần chuẩn bị CipherTrust Manager và điền 3 registration token cùng IP của CM vào file `.env`, sau đó `docker compose up -d` là có ngay môi trường demo đầy đủ — không cần build code.
 
 ---
 
@@ -20,8 +20,6 @@ Môi trường demo **Thales CipherTrust Data Security Platform (CDSP)** dạng 
 │                         │                       │            │
 │                         └──────────────────► postgres-prod   │
 │                                                              │
-│  pgAdmin :5050 ──────────────────────────► postgres-*        │
-│  BDT     :8010 ──────────────────────────► postgres-analytics│
 └──────────────────────────────────────────────────────────────┘
           │ Registration                  │ Registration
           ▼                               ▼
@@ -44,7 +42,6 @@ Môi trường demo **Thales CipherTrust Data Security Platform (CDSP)** dạng 
 | `dpg` | 8990 | CipherTrust Data Protection Gateway |
 | `bdt` | 8010 | CipherTrust Batch Data Transformation |
 | `postgres-prod` | 5432 | DB chính (`customers`, `app_users`) |
-| `postgres-analytics` | 5433 | DB analytics (`customers_clear`) |
 
 ---
 
@@ -58,22 +55,32 @@ Môi trường demo **Thales CipherTrust Data Security Platform (CDSP)** dạng 
 
 Cấu hình các thành phần sau trên CM trước khi khởi động lab:
 
-**Keys & Protection Policies**
+**Keys**
 
 | Tên | Loại | Mô tả |
 |---|---|---|
 | `hpidbank_master_key` | AES-256 | Key gốc cho toàn bộ lab |
+
+**Protection Policies**
+
+| Tên | Loại | Mô tả |
+|---|---|---|
 | `pol_cccd_fpe` | Protection Policy — FPE/FF1v2 | Tokenize số CCCD (12 chữ số) |
 | `pol_credit_card_fpe` | Protection Policy — FPE/FF1v2 | Tokenize số thẻ tín dụng (16 chữ số) |
 
-**User Sets & Access Policies (dành cho DPG)**
+**Access Policies (dành cho DPG)**
 
 | Tên | Thành viên | Quyền trên DPG |
 |---|---|---|
-| `us_admins` | `admin` | Reveal — xem plaintext |
-| `us_viewers` | `viewer1`, `viewer2` | Masked — xem dữ liệu che |
 | `acc_cccd_role_based` | — | Áp `pol_cccd_fpe` theo User Set |
 | `acc_cc_role_based` | — | Áp `pol_credit_card_fpe` theo User Set |
+
+**User Sets**
+
+| Tên | Thành viên | Quyền trên DPG |
+|---|---|---|
+| `admins` | `admin`, `app1` | Reveal — xem plaintext |
+| `viewers` | `viewer1`, `viewer2` | Masked — xem dữ liệu che |
 
 **DPG Policy — JSONPath rules**
 
@@ -109,8 +116,7 @@ Mở `.env` và điền các thông tin bắt buộc:
 
 ```env
 # IP hoặc hostname của CipherTrust Manager
-CRDP_KMS=<ip-ciphertrust-manager>
-DPG_KMS=<ip-ciphertrust-manager>
+KMS=<ip-ciphertrust-manager>
 
 # Registration tokens lấy từ CM
 CRDP_REG_TOKEN=<token>
@@ -146,7 +152,6 @@ Tất cả service ở trạng thái `Up` là sẵn sàng.
 
 | Username | Password | Role |
 |---|---|---|
-| `admin` | `Admin@123` | Admin |
 | `teller1` | `Teller@123` | Giao dịch viên |
 
 ### App2 (React — port 8001 / 8002)
